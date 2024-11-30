@@ -13,3 +13,6 @@ reflects the provided configuration, since the volume is binded.
 * Connect ESP32 development board to the same WiFi in which your local machine works. Please make sure that the docker network configuration uses the same network as your local machine.
 * For HotSpots Broker's IP address will probably begin with `172.x.x.x`.
 * Use correct naming for topics in `mqtt.py`, as they are using the MAC addresses of ESP32 development boards.
+
+<img width="242" alt="Screenshot 2024-11-30 at 23 00 20" src="https://github.com/user-attachments/assets/412930d4-14ae-4ba6-9708-2437c258f11c">
+<img width="242" alt="Screenshot 2024-11-30 at 23 00 10" src="https://github.com/user-attachments/assets/8d5a2c00-c110-47e3-95df-52f99fb96776">
