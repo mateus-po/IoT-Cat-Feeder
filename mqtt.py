@@ -22,6 +22,12 @@ def on_connect(client, userdata, flags, rc):
     print(f"Connected to MQTT broker with result code {rc}")
     client.subscribe([(mqtt_topic_weight, 0), (mqtt_topic_pressure, 0)])
 
+def on_disconnect(client, userdata, rc):
+    if rc != 0:
+        print(f"Unexpected disconnection. Return code: {rc}")
+    else:
+        print("Disconnected successfully.")
+
 def on_message(client, userdata, msg):
     message = msg.payload.decode()
     
@@ -35,9 +41,14 @@ def on_message(client, userdata, msg):
 client = mqtt.Client()
 client.username_pw_set(mqtt_user, mqtt_password)
 client.on_connect = on_connect
+client.on_disconnect = on_disconnect
 client.on_message = on_message
 
-client.connect(mqtt_broker, mqtt_port, 60)
+try:
+    client.connect(mqtt_broker, mqtt_port, 60)
+except Exception as err:
+    print("Connection refused. Please check if the broker is running.")
+    exit()
 
 def run_mqtt():
     client.loop_forever()
