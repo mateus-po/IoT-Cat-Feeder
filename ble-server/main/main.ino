@@ -26,7 +26,7 @@ class ReadCallbacks : public BLECharacteristicCallbacks {
     String value = pCharacteristic->getValue();
     
     if (value.length() > 0) {
-      Serial.println("[Read] Value:");
+      Serial.print("[Read] Value: ");
       for (int i = 0; i < value.length(); i++) {
         Serial.print(value[i]);
       }
@@ -40,14 +40,13 @@ class NotifyCallbacks : public BLECharacteristicCallbacks {
     String value = pCharacteristic->getValue();
     
     if (value.length() > 0) {
-      Serial.println("[Notify] Value:");
+      Serial.print("[Notify] Value: ");
       for (int i = 0; i < value.length(); i++) {
         Serial.print(value[i]);
       }
       Serial.println();
     }
 
-    pCharacteristic->setValue(value.c_str());
     pCharacteristic->notify();
   }
 };

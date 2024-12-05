@@ -17,18 +17,20 @@ bool isConnectedToServer = false;
 class ClientCallbacks: public BLEClientCallbacks {
   void onConnect(BLEClient *pClient) {
     isConnectedToServer = true;
-    Serial.println("Client Connected");
+    Serial.println("Client connected.");
   }
 
   void onDisconnect(BLEClient *pClient) {
     isConnectedToServer = false;
-    Serial.println("Client Disconnected");
+    Serial.println("Client disconnected.");
   }
 };
 
-static void onNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic1, uint8_t* pData1, size_t length, bool isNotify) {
-    Serial.printf("%d\n", pData1[0]);
-    Serial.print("\n");
+static void onNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic1, uint8_t* pData, size_t length, bool isNotify) {
+    String receivedString = String((char*)pData, length); 
+    Serial.print("[FROM NOTIFY]: ");
+    Serial.print(receivedString);
+    Serial.println();
 }
 
 void scanForDevices() {
@@ -71,14 +73,14 @@ void connectToServer(BLEAdvertisedDevice* device) {
     pRemoteCharacteristicRead = pRemoteService->getCharacteristic(CHARACTERISTIC_READ_UUID);
     pRemoteCharacteristicNotify = pRemoteService->getCharacteristic(CHARACTERISTIC_NOTIFY_UUID);
 
-    if (pRemoteCharacteristicRead != nullptr) {
+    if (pRemoteCharacteristicRead != nullptr && pRemoteCharacteristicRead->canRead()) {
       String readValue = pRemoteCharacteristicRead->readValue().c_str();
       Serial.println("Read value: " + readValue);
     } else {
       Serial.println("Failed to find read characteristic.");
     }
 
-    if (pRemoteCharacteristicNotify != nullptr) {
+    if (pRemoteCharacteristicNotify != nullptr && pRemoteCharacteristicNotify->canNotify()) {
       pRemoteCharacteristicNotify->registerForNotify(onNotifyCallback);
       Serial.println("Subscribed to notifications.");
     } else {
@@ -102,6 +104,12 @@ void loop() {
   if (!isConnectedToServer) {
     scanForDevices();
     return;
+  }
+
+  if (isConnectedToServer && pRemoteCharacteristicNotify->canWrite()) {
+    String colors[6] = {"RED", "BLUE", "GREEN", "BLACK", "ORANGE", "WHITE"};
+    int randomIndex = random(0, 6);
+    pRemoteCharacteristicNotify->writeValue(colors[randomIndex].c_str(), sizeof(colors[randomIndex].c_str()));
   }
 
   delay(2000);
