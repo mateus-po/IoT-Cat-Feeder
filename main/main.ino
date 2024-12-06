@@ -9,14 +9,20 @@ const char* mqtt_user = ""; // MQTT user which is used for authentication
 const char* mqtt_password = ""; // MQTT password used for authenticating aforementioned user
 const int mqtt_port = 1883; 
 
+String user_id = "58646680-c457-42d2-ab18-39fd527036d4";
+
 String client_id;
 
+String get_topic_prefix() {
+  return "ACF_app/" + user_id + "/devices/" + client_id;
+}
+
 String get_weight_topic() {
-  return client_id + "/devices/weight";
+  return get_topic_prefix() + "/weight";
 }
 
 String get_pressure_topic() {
-  return client_id + "/devices/pressure";
+  return get_topic_prefix() + "/pressure";
 }
 
 WiFiClient espClient;
@@ -101,13 +107,27 @@ void setup() {
   connect_mqtt();
 }
 
+unsigned long lastPublishTime = 0;
+const unsigned long publishInterval = 3000;
+
 void loop() {
   if (!client.connected()) {
-    connect_mqtt();
+    static unsigned long lastReconnectAttempt = 0;
+    unsigned long now = millis();
+    
+    if (now - lastReconnectAttempt > 500) {
+      lastReconnectAttempt = now;
+      connect_mqtt();
+    }
+  } else {
+    client.loop();
   }
 
-  client.loop();
-  publish_weight();
-  publish_pressure();
-  delay(3000);
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastPublishTime >= publishInterval) {
+    lastPublishTime = currentMillis;
+    publish_weight();
+    publish_pressure();
+  }
 }
+
