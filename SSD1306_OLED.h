@@ -2,7 +2,7 @@
 
 class SSD1306_OLED {
 public:
-    SSD1306_OLED(uint8_t address, uint8_t width, uint8_t height);
+    SSD1306_OLED(uint8_t address, uint8_t width, uint8_t height, uint8_t brightness);
     ~SSD1306_OLED();
     void begin();
     void clearDisplay();
@@ -312,6 +312,7 @@ private:
     uint8_t i2cAddress;
     uint8_t displayWidth;
     uint8_t displayHeight;
+    uint8_t displayBrightness;
 
     void sendCommand(uint8_t command);
     void sendData(uint8_t data);

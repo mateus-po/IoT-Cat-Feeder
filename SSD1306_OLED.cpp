@@ -1,7 +1,7 @@
 #include "SSD1306_OLED.h"
 
-SSD1306_OLED::SSD1306_OLED(uint8_t address, uint8_t width, uint8_t height)
-    : i2cAddress(address), displayWidth(width), displayHeight(height) {
+SSD1306_OLED::SSD1306_OLED(uint8_t address, uint8_t width, uint8_t height, uint8_t brightness)
+    : i2cAddress(address), displayWidth(width), displayHeight(height), displayBrightness(brightness) {
     buffer = new uint8_t[displayWidth * displayHeight / 8]();
 }
 
@@ -17,6 +17,7 @@ void SSD1306_OLED::begin() {
 }
 
 void SSD1306_OLED::initializeDisplay() {
+
     sendCommand(0xAE); // Display OFF
     sendCommand(0x20); // Set Memory Addressing Mode
     sendCommand(0x00); // Horizontal addressing mode
@@ -26,11 +27,11 @@ void SSD1306_OLED::initializeDisplay() {
     sendCommand(0x10); // Set high column address
     sendCommand(0x40); // Set start line address
     sendCommand(0x81); // Set contrast control
-    sendCommand(0x30);
+    sendCommand(displayBrightness); // Use brightness parameter
     sendCommand(0xA1); // Set segment re-map
     sendCommand(0xA6); // Normal display
     sendCommand(0xA8); // Set multiplex ratio
-    sendCommand(0x1F); // 1/32 duty
+    sendCommand(displayHeight - 1); // Use height parameter (multiplex ratio = height - 1)
     sendCommand(0xD3); // Set display offset
     sendCommand(0x00); // No offset
     sendCommand(0xD5); // Set display clock divide ratio/oscillator frequency
@@ -38,7 +39,7 @@ void SSD1306_OLED::initializeDisplay() {
     sendCommand(0xD9); // Set pre-charge period
     sendCommand(0x22);
     sendCommand(0xDA); // Set com pins hardware configuration
-    sendCommand(0x02);
+    sendCommand((displayHeight == 32) ? 0x02 : 0x12); // Set pins config based on height (32 or 64)
     sendCommand(0xDB); // Set vcomh
     sendCommand(0x20); // 0.77xVcc
     sendCommand(0x8D); // Enable charge pump regulator
