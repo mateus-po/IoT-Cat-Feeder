@@ -1,6 +1,13 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h> 
+#include "LightSensor.h"
+#include "SSD1306_OLED.h"
+#include "Speaker.h"
+#include <Arduino.h>
+#include "soc/rtc.h"
+#include "HX711.h"
+#include "Motor.h"
 
 const char* ssid = ""; // WiFi SSID
 const char* password = ""; // WiFi Password
@@ -12,6 +19,25 @@ const int mqtt_port = 1883;
 
 String user_id;
 String client_id;
+
+#define TEMT6000 34
+#define OLED_I2C_ADDRESS 0x3C
+#define OLED_WIDTH 128
+#define OLED_HEIGHT 32
+#define OLED_BRIGHTNESS 0x01
+#define SPEAKER_PIN 25
+const int LOADCELL_DOUT_PIN = 16;
+const int LOADCELL_SCK_PIN = 4;
+int motor1Pin1 = 27; 
+int motor1Pin2 = 26; 
+int enable1Pin = 14; 
+
+
+Speaker speaker(SPEAKER_PIN);
+SSD1306_OLED oled(OLED_I2C_ADDRESS, OLED_WIDTH, OLED_HEIGHT, OLED_BRIGHTNESS);
+LightSensor lightSensor(TEMT6000);
+HX711 scale;
+Motor motor(motor1Pin1, motor1Pin2, enable1Pin);
 
 String get_register_topic() {
   return "ACF_app/" + client_id + "/action";
@@ -164,10 +190,31 @@ void setup() {
   
   setup_wifi();
   client_id = get_client_id();
+
+  delay(1000);
+  uint8_t baseMac[6];
+  WiFi.macAddress(baseMac);
+  Serial.println("MAC:");
+  Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
+                  baseMac[0], baseMac[1], baseMac[2],
+                  baseMac[3], baseMac[4], baseMac[5]);
+
+  Serial.println("Client ID:");
+  Serial.println(client_id);
   
   client.setServer(mqtt_broker, mqtt_port);
   client.setCallback(mqtt_callback);
   connect_mqtt();
+
+  oled.begin();
+  rtc_cpu_freq_config_t config;
+  rtc_clk_cpu_freq_get_config(&config);
+  rtc_clk_cpu_freq_to_config(RTC_CPU_FREQ_80M, &config);
+  rtc_clk_cpu_freq_set_config_fast(&config);
+  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+  delay(1000);
+  scale.set_scale();    
+  scale.tare();
 }
 
 unsigned long lastPublishTime = 0;
