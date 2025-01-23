@@ -8,14 +8,19 @@
 #include "soc/rtc.h"
 #include "HX711.h"
 #include "Motor.h"
+#include "time.h"
 
 const char* ssid = ""; // WiFi SSID
 const char* password = ""; // WiFi Password
 
 const char* mqtt_broker = ""; // Broker's IP
-const char* mqtt_user = "acf_user"; // MQTT user which is used for authentication
-const char* mqtt_password = "admin123"; // MQTT password used for authenticating aforementioned user
+const char* mqtt_user = ""; // MQTT user which is used for authentication
+const char* mqtt_password = ""; // MQTT password used for authenticating aforementioned user
 const int mqtt_port = 1883; 
+
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 2;
+const int  daylightOffset_sec = 3600;
 
 String user_id;
 String client_id;
@@ -48,11 +53,15 @@ String get_topic_prefix() {
 }
 
 String get_weight_topic() {
-  return get_topic_prefix() + "/weight";
+  return get_topic_prefix() + "/sensors/weight";
 }
 
 String get_light_topic() {
-  return get_topic_prefix() + "/light";
+  return get_topic_prefix() + "/sensors/light";
+}
+
+String get_action_topic() {
+  return get_topic_prefix() + "/action";
 }
 
 WiFiClient espClient;
@@ -94,6 +103,14 @@ void connect_mqtt() {
       
       String register_topic = get_register_topic();
       client.subscribe(register_topic.c_str());
+      Serial.println("Subscribed to: " + register_topic);
+
+      if (user_id.length() > 0) {
+        String action_topic = get_action_topic();
+        client.subscribe(action_topic.c_str());
+        Serial.println("Subscribed to: " + action_topic);
+      }
+      
     } else {
       Serial.print("Failed. Error code: ");
       Serial.println(client.state());
@@ -111,9 +128,19 @@ void publish_weight() {
       weight = 0.0;
     }
 
+    struct tm timeinfo;
+    
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");
+      return;
+    }
+
+    char timeString[120];
+    strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
+
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = weight;
-    jsonDoc["timestamp"] = millis();
+    jsonDoc["timestamp"] = timeString;
 
     char jsonBuffer[128];
     serializeJson(jsonDoc, jsonBuffer);
@@ -130,9 +157,19 @@ void publish_light() {
  if (client.connected()) {
     float light = lightSensor.readLux();
 
+    struct tm timeinfo;
+    
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");
+      return;
+    }
+
+    char timeString[120];
+    strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
+
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = light;
-    jsonDoc["timestamp"] = millis();
+    jsonDoc["timestamp"] = timeString;
 
     char jsonBuffer[128];
     serializeJson(jsonDoc, jsonBuffer);
@@ -166,25 +203,26 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   JsonObject data = jsonDoc["data"];
   if (!data.isNull()) {
     String action = data["action"];
-    String new_user_id = data["userId"];
+    
+    if (action == "register") {
+      String new_user_id = data["userId"];
+      if (new_user_id.length() > 0) {
+          user_id = new_user_id;
+          Serial.print("Updated user_id to: ");
+          Serial.println(user_id);
 
-    Serial.print("Action: ");
-    Serial.println(action);
-    Serial.print("User ID: ");
-    Serial.println(new_user_id);
-
-    if (action == "register" && new_user_id.length() > 0) {
-      // TODO: Store in flash instead of in variable
-      user_id = new_user_id;
-      Serial.print("Updated user_id to: ");
-      Serial.println(user_id);
+          String action_topic = get_action_topic();
+          client.subscribe(action_topic.c_str());
+          Serial.println("Subscribed to: " + action_topic);
+      }
+    } else if (action == "distribute") {
+      Serial.println("Distribution...");
+    } else if (action == "update") {
+      String settings = data["settings"];
+      Serial.println(settings);
     } else {
       Serial.println("No valid action or user_id found in data");
     }
-
-     // TODO: Handle other messages e.g distribute
-  } else {
-    Serial.println("No data field found in JSON payload");
   }
 }
 
@@ -204,6 +242,7 @@ void setup() {
 
   Serial.println("Client ID:");
   Serial.println(client_id);
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   
   client.setServer(mqtt_broker, mqtt_port);
   client.setCallback(mqtt_callback);
@@ -221,7 +260,7 @@ void setup() {
 }
 
 unsigned long lastPublishTime = 0;
-const unsigned long publishInterval = 3000;
+const unsigned long publishInterval = 1000;
 
 void loop() {
   if (!client.connected()) {
