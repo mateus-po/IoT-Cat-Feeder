@@ -10,12 +10,105 @@
 #include "Motor.h"
 #include "time.h"
 
-const char* ssid = ""; // WiFi SSID
-const char* password = ""; // WiFi Password
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+#include <HTTPClient.h>
+#include <WiFi.h>
+#include <Arduino.h>
 
-const char* mqtt_broker = ""; // Broker's IP
-const char* mqtt_user = ""; // MQTT user which is used for authentication
-const char* mqtt_password = ""; // MQTT password used for authenticating aforementioned user
+int LED_BUILTIN = 2;
+
+#define SERVICE_UUID        "85192177-2bbe-45b4-ac18-115c21bc8e0f"
+#define CHARACTERISTIC_WRITE_SSID "85192178-2bbe-45b4-ac18-115c21bc8e0f"
+#define CHARACTERISTIC_WRITE_PASSWORD "85192179-2bbe-45b4-ac18-115c21bc8e0f"
+ 
+const int len = 64; 
+const uint32_t addressStart = 0x3F3000;
+uint8_t FLASH_Address_SSID = 0;
+uint8_t FLASH_Address_Password = 1;
+ 
+// char ssid[len], password[len];
+char ssid[len]= "realme 9 Pro+"; // WiFi SSID
+char password[len] = "mojewifi"; // WiFi Password
+
+void flashWrite(char data[len], int i) {
+  uint32_t flashAddress = addressStart + i*len;
+  char buff_write[len];
+  strcpy(buff_write, data);
+  if (ESP.flashWrite(flashAddress,(uint32_t*)buff_write, sizeof(buff_write)-1))
+    Serial.printf("address: %p write \"%s\" [ok]\n", flashAddress, buff_write);
+  else 
+    Serial.printf("address: %p write \"%s\" [error]\n", flashAddress, buff_write);
+}
+
+char* flashRead(int i) {      // i = 0 to 63
+  uint32_t flashAddress = addressStart + i*len;
+  static char buff_read[len];
+  if (ESP.flashRead(flashAddress,(uint32_t*)buff_read, sizeof(buff_read)-1)) {
+    return buff_read;
+  } else  
+    return "";  
+}
+
+void flashErase() {
+  if (ESP.flashEraseSector(addressStart / 4096))
+    Serial.println("\nErase [ok]");
+  else
+    Serial.println("\nErase [error]");
+}
+
+bool deviceConnected = false;
+
+class ServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+    Serial.println("Device connected.");
+  }
+
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+    Serial.println("Device disconnected.");
+  }
+};
+
+class WriteSSIDCallback : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    String value = pCharacteristic->getValue().c_str();
+    
+    if (value.length() > 0) {
+      Serial.print("SSID: ");
+      strcpy(ssid, value.c_str());
+      Serial.println(ssid);
+      flashErase();
+      flashWrite(ssid, 0);  
+      flashWrite(password, 1);
+      WiFi.begin(ssid, password);
+    }
+  }
+};
+
+class WritePasswordCallback : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    String value = pCharacteristic->getValue().c_str();
+    
+    if (value.length() > 0) {
+      Serial.print("Password: ");
+      strcpy(password, value.c_str());
+      Serial.println(password);
+      flashErase();
+      flashWrite(ssid, 0);  
+      flashWrite(password, 1);
+      WiFi.begin(ssid, password);
+    }
+  }
+};
+
+
+const char* mqtt_broker = "192.168.45.62"; // Broker's IP
+const char* mqtt_user = "acf_user"; // MQTT user which is used for authentication
+const char* mqtt_password = "admin123"; // MQTT password used for authenticating aforementioned user
 const int mqtt_port = 1883; 
 
 const char* ntpServer = "pool.ntp.org";
@@ -223,26 +316,70 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     } else {
       Serial.println("No valid action or user_id found in data");
     }
+
+     // TODO: Handle other messages e.g distribute
+  } else {
+    Serial.println("No data field found in JSON payload");
   }
+}
+
+long int distributionStart =  millis();
+
+void distribute() {
+  speaker.playShortMelody();
+  distributionStart = millis();
 }
 
 void setup() {
   Serial.begin(115200);
-  
-  setup_wifi();
-  client_id = get_client_id();
 
   delay(1000);
-  uint8_t baseMac[6];
-  WiFi.macAddress(baseMac);
-  Serial.println("MAC:");
-  Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
-                  baseMac[0], baseMac[1], baseMac[2],
-                  baseMac[3], baseMac[4], baseMac[5]);
 
-  Serial.println("Client ID:");
-  Serial.println(client_id);
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  Serial.println("MEGA INIT!");
+  
+  BLEDevice::init("ACF_Serwer"); 
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
+
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  BLECharacteristic *pCharacteristicWriteSSID = pService->createCharacteristic(
+    CHARACTERISTIC_WRITE_SSID,
+    BLECharacteristic::BLECharacteristic::PROPERTY_WRITE
+  );
+
+  BLECharacteristic *pCharacteristicWritePassword = pService->createCharacteristic(
+    CHARACTERISTIC_WRITE_PASSWORD,
+    BLECharacteristic::PROPERTY_WRITE
+  );
+
+
+  pCharacteristicWriteSSID->setValue("ACF_001_WRITE_SSID");
+  pCharacteristicWriteSSID->addDescriptor(new BLE2902());
+  pCharacteristicWriteSSID->setCallbacks(new WriteSSIDCallback());
+
+  pCharacteristicWritePassword->setValue("ACF_001_WRITE_PASSWORD");
+  pCharacteristicWritePassword->addDescriptor(new BLE2902());
+  pCharacteristicWritePassword->setCallbacks(new WritePasswordCallback());
+
+  pService->start();
+
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+
+  Serial.println("OOOOH READING THE FLASH MEMORY!");
+
+  strcpy(ssid, flashRead(0));
+  strcpy(password, flashRead(1));
+  Serial.printf("ssid: \"%s\"\npassword: \"%s\"\n", ssid, password);
+
+  pinMode(LED_BUILTIN, OUTPUT);
+  WiFi.begin(ssid, password);
   
   client.setServer(mqtt_broker, mqtt_port);
   client.setCallback(mqtt_callback);
@@ -260,9 +397,64 @@ void setup() {
 }
 
 unsigned long lastPublishTime = 0;
-const unsigned long publishInterval = 1000;
+const unsigned long publishInterval = 3000;
+long int BLELastAdvertised = millis() - 2001, WiFiLastLogin = millis() - 2001, weightLastUpdate = millis() - 2001;
+
+void displayWeight() {
+  char result[32];
+
+  if (scale.is_ready()) {
+    float reading = (float) scale.get_units(10) / 1146;
+    dtostrf(reading, 8, 2, result);
+    oled.clearDisplay();
+    oled.drawRectangle(0, 0, 127, 31, true);
+    oled.drawRectangle(2, 2, 125, 29, true);
+    oled.drawText(5, 5, result, 2, true);
+    oled.display();
+  } 
+  else {
+    Serial.println("HX711 not found.");
+  }
+}
 
 void loop() {
+
+
+  if (distributionStart+3000 > millis()) {
+    speaker.fillBuffer();
+    motor.moveForward();
+    return;
+  } else {
+    motor.stopMotor();
+  }
+  
+
+
+  if(!deviceConnected && (BLELastAdvertised + 2000) < millis()) {
+    BLELastAdvertised = millis();
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06);
+    pAdvertising->setMinPreferred(0x12);
+    BLEDevice::startAdvertising();
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    if ((WiFiLastLogin+2000) < millis()) {
+      WiFi.begin(ssid, password);
+      WiFiLastLogin = millis();
+    } 
+    else if ((WiFiLastLogin+1000) > millis()) {
+      digitalWrite(LED_BUILTIN, HIGH);
+    }
+    else {
+      digitalWrite(LED_BUILTIN, LOW);
+    }
+  } else {
+    digitalWrite(LED_BUILTIN, LOW);
+  }
+
   if (!client.connected()) {
     static unsigned long lastReconnectAttempt = 0;
     unsigned long now = millis();
@@ -281,5 +473,11 @@ void loop() {
     publish_weight();
     publish_light();
   }
+
+  if (currentMillis - weightLastUpdate >= 500) {
+      weightLastUpdate = currentMillis;
+      displayWeight();
+    } 
 }
+
 
