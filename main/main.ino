@@ -104,8 +104,12 @@ void connect_mqtt() {
 
 void publish_weight() {
  if (client.connected()) {
-    // TODO: Set real value
-    float weight = generate_random_value(10.0, 40.0);
+    float weight;
+    if (scale.is_ready()) {
+      weight = (float) scale.get_units(10) / 1146;
+    } else {
+      weight = 0.0;
+    }
 
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = weight;
@@ -124,8 +128,7 @@ void publish_weight() {
 
 void publish_light() {
  if (client.connected()) {
-    // TODO: Set real value
-    float light = generate_random_value(10.0, 40.0);
+    float light = lightSensor.readLux();
 
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = light;
