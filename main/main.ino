@@ -114,6 +114,7 @@ class WriteSSIDCallback : public BLECharacteristicCallbacks {
       flashWrite(user_id, 2);
       flashWrite(alert_threshold, 3);
       WiFi.begin(ssid, password);
+      configTime(0, daylightOffset_sec, ntpServer);
     }
   }
 };
@@ -132,6 +133,7 @@ class WritePasswordCallback : public BLECharacteristicCallbacks {
       flashWrite(user_id, 2);
       flashWrite(alert_threshold, 3);
       WiFi.begin(ssid, password);
+      configTime(0, daylightOffset_sec, ntpServer);
     }
   }
 };
@@ -226,28 +228,25 @@ void publish_weight() {
     }
     currentWeight = weight;
 
-    // struct tm timeinfo;
+    struct tm timeinfo;
     
-    // if (!getLocalTime(&timeinfo)) {
-    //   Serial.println("Failed to obtain time");
-    //   return;
-    // }
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");
+      return;
+    }
 
-    // char timeString[120];
-    // strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
+    char timeString[120];
+    strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
 
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = weight;
-    jsonDoc["timestamp"] = millis();
+    jsonDoc["timestamp"] = timeString;
 
     char jsonBuffer[128];
     serializeJson(jsonDoc, jsonBuffer);
 
     String topic = get_weight_topic();
     client.publish(topic.c_str(), jsonBuffer); 
-
-    // Serial.print("Published weight: ");
-    // Serial.println(jsonBuffer);
   }
 }
 
@@ -255,36 +254,33 @@ void publish_light() {
  if (client.connected()) {
     float light = lightSensor.readLux();
 
-    // struct tm timeinfo;
+    struct tm timeinfo;
     
-    // if (!getLocalTime(&timeinfo)) {
-    //   Serial.println("Failed to obtain time");
-    //   return;
-    // }
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");
+      return;
+    }
 
-    // char timeString[120];
-    // strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
+    char timeString[120];
+    strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
 
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = light;
-    jsonDoc["timestamp"] = millis();
+    jsonDoc["timestamp"] = timeString;
 
     char jsonBuffer[128];
     serializeJson(jsonDoc, jsonBuffer);
 
     String topic = get_light_topic();
     client.publish(topic.c_str(), jsonBuffer); 
-
-    // Serial.print("Published light: ");
-    // Serial.println(jsonBuffer);
   }
 }
 
-long int distributionStart =  millis() - 3000;
+long int distributionStart =  0;
 
 void distribute() {
-  speaker.playShortMelody();
   distributionStart = millis();
+  speaker.playShortMelody();
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
@@ -394,6 +390,7 @@ void setup() {
 
   pinMode(LED_BUILTIN, OUTPUT);
   WiFi.begin(ssid, password);
+  configTime(0, daylightOffset_sec, ntpServer);
   
   client.setServer(mqtt_broker, mqtt_port);
   client.setCallback(mqtt_callback);
@@ -436,8 +433,6 @@ void displayWeight() {
 }
 
 void loop() {
-
-
   if (distributionStart+3000 > millis()) {
     speaker.fillBuffer();
     motor.moveForward();
@@ -451,10 +446,6 @@ void loop() {
     displayWeight();
   } 
 
-  
-  
-
-
   if(!deviceConnected && (BLELastAdvertised + 2000) < millis()) {
     BLELastAdvertised = millis();
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
@@ -466,18 +457,18 @@ void loop() {
   }
 
   unsigned long currentMillis = millis();
-  if (currentMillis - lastPublishTime >= publishInterval) {
+  if (String(user_id) != "tombstone" && currentMillis - lastPublishTime >= publishInterval) {
     lastPublishTime = currentMillis;
     publish_weight();
     publish_light();
   }
 
   if (WiFi.status() != WL_CONNECTED) {
-    if ((WiFiLastLogin+2000) < millis()) {
+    if (millis() - WiFiLastLogin >= 4000) {
       WiFi.begin(ssid, password);
       WiFiLastLogin = millis();
     } 
-    else if ((WiFiLastLogin+1000) > millis()) {
+    else if (millis() - WiFiLastLogin >= 2000) {
       digitalWrite(LED_BUILTIN, HIGH);
     }
     else {
