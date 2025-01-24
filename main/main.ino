@@ -29,9 +29,36 @@ const uint32_t addressStart = 0x3F3000;
 uint8_t FLASH_Address_SSID = 0;
 uint8_t FLASH_Address_Password = 1;
  
-// char ssid[len], password[len];
-char ssid[len]= "realme 9 Pro+"; // WiFi SSID
-char password[len] = "mojewifi"; // WiFi Password
+char ssid[len]; // WiFi SSID
+char password[len]; // WiFi Password
+char user_id[len];
+char alert_threshold[len];
+
+
+const char* mqtt_broker = ""; // Broker's IP
+const char* mqtt_user = "acf_user"; // MQTT user which is used for authentication
+const char* mqtt_password = "admin123"; // MQTT password used for authenticating aforementioned user
+const int mqtt_port = 1883; 
+
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 2;
+const int  daylightOffset_sec = 3600;
+float currentWeight = 0;
+
+
+String client_id="8813bf0c3230";
+
+#define TEMT6000 34
+#define OLED_I2C_ADDRESS 0x3C
+#define OLED_WIDTH 128
+#define OLED_HEIGHT 32
+#define OLED_BRIGHTNESS 0x01
+#define SPEAKER_PIN 25
+const int LOADCELL_DOUT_PIN = 16;
+const int LOADCELL_SCK_PIN = 4;
+int motor1Pin1 = 27; 
+int motor1Pin2 = 26; 
+int enable1Pin = 14; 
 
 void flashWrite(char data[len], int i) {
   uint32_t flashAddress = addressStart + i*len;
@@ -84,6 +111,8 @@ class WriteSSIDCallback : public BLECharacteristicCallbacks {
       flashErase();
       flashWrite(ssid, 0);  
       flashWrite(password, 1);
+      flashWrite(user_id, 2);
+      flashWrite(alert_threshold, 3);
       WiFi.begin(ssid, password);
     }
   }
@@ -100,35 +129,12 @@ class WritePasswordCallback : public BLECharacteristicCallbacks {
       flashErase();
       flashWrite(ssid, 0);  
       flashWrite(password, 1);
+      flashWrite(user_id, 2);
+      flashWrite(alert_threshold, 3);
       WiFi.begin(ssid, password);
     }
   }
 };
-
-
-const char* mqtt_broker = "192.168.45.62"; // Broker's IP
-const char* mqtt_user = "acf_user"; // MQTT user which is used for authentication
-const char* mqtt_password = "admin123"; // MQTT password used for authenticating aforementioned user
-const int mqtt_port = 1883; 
-
-const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 2;
-const int  daylightOffset_sec = 3600;
-
-String user_id;
-String client_id;
-
-#define TEMT6000 34
-#define OLED_I2C_ADDRESS 0x3C
-#define OLED_WIDTH 128
-#define OLED_HEIGHT 32
-#define OLED_BRIGHTNESS 0x01
-#define SPEAKER_PIN 25
-const int LOADCELL_DOUT_PIN = 16;
-const int LOADCELL_SCK_PIN = 4;
-int motor1Pin1 = 27; 
-int motor1Pin2 = 26; 
-int enable1Pin = 14; 
 
 
 Speaker speaker(SPEAKER_PIN);
@@ -142,7 +148,7 @@ String get_register_topic() {
 }
 
 String get_topic_prefix() {
-  return "ACF_app/" + user_id + "/devices/" + client_id;
+  return "ACF_app/" + String(user_id) + "/devices/" + client_id;
 }
 
 String get_weight_topic() {
@@ -189,7 +195,6 @@ float generate_random_value(float min_val, float max_val) {
 }
 
 void connect_mqtt() {
-  while (!client.connected()) {
     Serial.println("Connecting to MQTT broker...");
     if (client.connect(client_id.c_str(), mqtt_user, mqtt_password)) {
       Serial.println("Connected to MQTT broker");
@@ -198,7 +203,7 @@ void connect_mqtt() {
       client.subscribe(register_topic.c_str());
       Serial.println("Subscribed to: " + register_topic);
 
-      if (user_id.length() > 0) {
+      if (String(user_id).length() > 0) {
         String action_topic = get_action_topic();
         client.subscribe(action_topic.c_str());
         Serial.println("Subscribed to: " + action_topic);
@@ -207,9 +212,7 @@ void connect_mqtt() {
     } else {
       Serial.print("Failed. Error code: ");
       Serial.println(client.state());
-      delay(3000);
     }
-  }
 }
 
 void publish_weight() {
@@ -217,23 +220,25 @@ void publish_weight() {
     float weight;
     if (scale.is_ready()) {
       weight = (float) scale.get_units(10) / 1146;
+      if (weight < 0) weight = 0;
     } else {
       weight = 0.0;
     }
+    currentWeight = weight;
 
-    struct tm timeinfo;
+    // struct tm timeinfo;
     
-    if (!getLocalTime(&timeinfo)) {
-      Serial.println("Failed to obtain time");
-      return;
-    }
+    // if (!getLocalTime(&timeinfo)) {
+    //   Serial.println("Failed to obtain time");
+    //   return;
+    // }
 
-    char timeString[120];
-    strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
+    // char timeString[120];
+    // strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
 
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = weight;
-    jsonDoc["timestamp"] = timeString;
+    jsonDoc["timestamp"] = millis();
 
     char jsonBuffer[128];
     serializeJson(jsonDoc, jsonBuffer);
@@ -241,8 +246,8 @@ void publish_weight() {
     String topic = get_weight_topic();
     client.publish(topic.c_str(), jsonBuffer); 
 
-    Serial.print("Published weight: ");
-    Serial.println(jsonBuffer);
+    // Serial.print("Published weight: ");
+    // Serial.println(jsonBuffer);
   }
 }
 
@@ -250,19 +255,19 @@ void publish_light() {
  if (client.connected()) {
     float light = lightSensor.readLux();
 
-    struct tm timeinfo;
+    // struct tm timeinfo;
     
-    if (!getLocalTime(&timeinfo)) {
-      Serial.println("Failed to obtain time");
-      return;
-    }
+    // if (!getLocalTime(&timeinfo)) {
+    //   Serial.println("Failed to obtain time");
+    //   return;
+    // }
 
-    char timeString[120];
-    strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
+    // char timeString[120];
+    // strftime(timeString, sizeof(timeString), "%B %d %Y %H:%M:%S", &timeinfo);
 
     StaticJsonDocument<128> jsonDoc;
     jsonDoc["value"] = light;
-    jsonDoc["timestamp"] = timeString;
+    jsonDoc["timestamp"] = millis();
 
     char jsonBuffer[128];
     serializeJson(jsonDoc, jsonBuffer);
@@ -270,9 +275,16 @@ void publish_light() {
     String topic = get_light_topic();
     client.publish(topic.c_str(), jsonBuffer); 
 
-    Serial.print("Published light: ");
-    Serial.println(jsonBuffer);
+    // Serial.print("Published light: ");
+    // Serial.println(jsonBuffer);
   }
+}
+
+long int distributionStart =  millis() - 3000;
+
+void distribute() {
+  speaker.playShortMelody();
+  distributionStart = millis();
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
@@ -300,44 +312,43 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     if (action == "register") {
       String new_user_id = data["userId"];
       if (new_user_id.length() > 0) {
-          user_id = new_user_id;
+          strcpy(user_id, new_user_id.c_str());
           Serial.print("Updated user_id to: ");
           Serial.println(user_id);
+
+          flashErase();
+          flashWrite(ssid, 0);  
+          flashWrite(password, 1);
+          flashWrite(user_id, 2);
+          flashWrite(alert_threshold, 3);
 
           String action_topic = get_action_topic();
           client.subscribe(action_topic.c_str());
           Serial.println("Subscribed to: " + action_topic);
       }
     } else if (action == "distribute") {
-      Serial.println("Distribution...");
+      distribute();
     } else if (action == "update") {
-      String settings = data["settings"];
-      Serial.println(settings);
+      String settings = data["settings"]["weightThreshold"];
+          strcpy(alert_threshold, String(settings).c_str());
+          flashErase();
+          flashWrite(ssid, 0);  
+          flashWrite(password, 1);
+          flashWrite(user_id, 2);
+          flashWrite(alert_threshold, 3);
     } else {
       Serial.println("No valid action or user_id found in data");
     }
-
-     // TODO: Handle other messages e.g distribute
   } else {
     Serial.println("No data field found in JSON payload");
   }
 }
 
-long int distributionStart =  millis();
-
-void distribute() {
-  speaker.playShortMelody();
-  distributionStart = millis();
-}
-
 void setup() {
   Serial.begin(115200);
 
-  delay(1000);
-
-
-  Serial.println("MEGA INIT!");
-  
+  delay(1000);  
+  Serial.println(get_client_id());
   BLEDevice::init("ACF_Serwer"); 
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
@@ -372,10 +383,13 @@ void setup() {
   pAdvertising->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
 
-  Serial.println("OOOOH READING THE FLASH MEMORY!");
+
 
   strcpy(ssid, flashRead(0));
   strcpy(password, flashRead(1));
+  strcpy(user_id, flashRead(2));
+  strcpy(alert_threshold, flashRead(3));
+
   Serial.printf("ssid: \"%s\"\npassword: \"%s\"\n", ssid, password);
 
   pinMode(LED_BUILTIN, OUTPUT);
@@ -399,12 +413,16 @@ void setup() {
 unsigned long lastPublishTime = 0;
 const unsigned long publishInterval = 3000;
 long int BLELastAdvertised = millis() - 2001, WiFiLastLogin = millis() - 2001, weightLastUpdate = millis() - 2001;
+unsigned long lastReconnectAttempt =  millis() - 2001;
+
 
 void displayWeight() {
   char result[32];
 
   if (scale.is_ready()) {
     float reading = (float) scale.get_units(10) / 1146;
+    if (reading < 0) reading = 0;
+    currentWeight = reading;
     dtostrf(reading, 8, 2, result);
     oled.clearDisplay();
     oled.drawRectangle(0, 0, 127, 31, true);
@@ -413,7 +431,7 @@ void displayWeight() {
     oled.display();
   } 
   else {
-    Serial.println("HX711 not found.");
+    // Serial.println("HX711 not found.");
   }
 }
 
@@ -427,6 +445,13 @@ void loop() {
   } else {
     motor.stopMotor();
   }
+
+  if (millis() - weightLastUpdate >= 500) {
+    weightLastUpdate =  millis();
+    displayWeight();
+  } 
+
+  
   
 
 
@@ -440,6 +465,13 @@ void loop() {
     BLEDevice::startAdvertising();
   }
 
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastPublishTime >= publishInterval) {
+    lastPublishTime = currentMillis;
+    publish_weight();
+    publish_light();
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
     if ((WiFiLastLogin+2000) < millis()) {
       WiFi.begin(ssid, password);
@@ -451,15 +483,18 @@ void loop() {
     else {
       digitalWrite(LED_BUILTIN, LOW);
     }
+    return;
   } else {
     digitalWrite(LED_BUILTIN, LOW);
+    if (atoi(alert_threshold) > currentWeight) {
+      digitalWrite(LED_BUILTIN, HIGH);
+    }
   }
 
   if (!client.connected()) {
-    static unsigned long lastReconnectAttempt = 0;
     unsigned long now = millis();
     
-    if (now - lastReconnectAttempt > 500) {
+  if (now - lastReconnectAttempt > 3000) {
       lastReconnectAttempt = now;
       connect_mqtt();
     }
@@ -467,17 +502,6 @@ void loop() {
     client.loop();
   }
 
-  unsigned long currentMillis = millis();
-  if (currentMillis - lastPublishTime >= publishInterval) {
-    lastPublishTime = currentMillis;
-    publish_weight();
-    publish_light();
-  }
-
-  if (currentMillis - weightLastUpdate >= 500) {
-      weightLastUpdate = currentMillis;
-      displayWeight();
-    } 
 }
 
 
